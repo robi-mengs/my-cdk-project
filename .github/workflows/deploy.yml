@@ -60,4 +60,4 @@ jobs:
       - name: Deploy
         env:
           OWNER: ${{ vars.OWNER }}
-        run: cdk deploy --require-approval never -c owner="$OWNER"
+        run: cdk deploy --all --require-approval never -c owner="$OWNER"

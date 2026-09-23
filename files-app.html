@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>TES-DEV File Manager</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 40px;
+      max-width: 500px;
+    }
+
+    .card {
+      border: 1px solid #ccc;
+      padding: 20px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+    }
+
+    button {
+      background-color: #0066cc;
+      color: white;
+      border: none;
+      padding: 10px 15px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      background-color: #999;
+      cursor: not-allowed;
+    }
+
+    ul {
+      list-style: none;
+      padding: 0;
+    }
+
+    li {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid #eee;
+    }
+
+    #status {
+      margin-top: 15px;
+      font-weight: bold;
+      padding: 10px;
+      border-radius: 4px;
+      background: #f0f0f0;
+    }
+  </style>
+</head>
+
+<body>
+
+  <h2>Upload a file</h2>
+  <div class="card">
+    <input type="file" id="filePicker" />
+    <button onclick="handleUpload()">Upload</button>
+  </div>
+
+  <h2>Files in the bucket</h2>
+  <div class="card">
+    <ul id="fileList"></ul>
+    <button onclick="loadFiles()">Refresh list</button>
+  </div>
+
+  <div id="status">Status: ready.</div>
+
+  <script>
+    const API_URL = "https://rbd7y2ecn9.execute-api.us-east-1.amazonaws.com/files";
+
+    function setStatus(msg, color = "black") {
+      const status = document.getElementById("status");
+      status.innerText = `Status: ${msg}`;
+      status.style.color = color;
+    }
+
+    async function loadFiles() {
+      setStatus("Loading file list...");
+      try {
+        const res = await fetch(`${API_URL}?action=list`);
+        const data = await res.json();
+        const list = document.getElementById("fileList");
+        list.innerHTML = "";
+        if (data.files.length === 0) {
+          list.innerHTML = "<li>No files yet.</li>";
+        }
+        data.files.forEach(f => {
+          const li = document.createElement("li");
+          li.innerHTML = `<span>${f.key} (${f.size} bytes)</span>`;
+          const btn = document.createElement("button");
+          btn.innerText = "Download";
+          btn.onclick = () => handleDownload(f.key);
+          li.appendChild(btn);
+          list.appendChild(li);
+        });
+        setStatus("File list loaded.", "green");
+      } catch (err) {
+        setStatus(`Error loading files: ${err.message}`, "red");
+      }
+    }
+
+    async function handleUpload() {
+      const fileInput = document.getElementById("filePicker");
+      if (!fileInput.files[0]) return alert("Please select a file first.");
+      const file = fileInput.files[0];
+
+      setStatus("Requesting upload URL...");
+      try {
+        const presignRes = await fetch(`${API_URL}?action=upload&filename=${encodeURIComponent(file.name)}`);
+        const presignData = await presignRes.json();
+
+        setStatus("Uploading to S3...");
+        const s3Res = await fetch(presignData.presignedUrl, {
+          method: "PUT",
+          headers: { "Content-Type": file.type || "application/octet-stream" },
+          body: file
+        });
+
+        if (!s3Res.ok) throw new Error("S3 upload rejected.");
+        setStatus(`Uploaded '${file.name}'.`, "green");
+        loadFiles();
+      } catch (err) {
+        setStatus(`Upload error: ${err.message}`, "red");
+      }
+    }
+
+    async function handleDownload(filename) {
+      setStatus(`Requesting download for '${filename}'...`);
+      try {
+        const res = await fetch(`${API_URL}?action=download&filename=${encodeURIComponent(filename)}`);
+        const data = await res.json();
+        window.location.href = data.presignedUrl;
+        setStatus(`Downloading '${filename}'.`, "green");
+      } catch (err) {
+        setStatus(`Download error: ${err.message}`, "red");
+      }
+    }
+
+    loadFiles();
+  </script>
+</body>
+
+</html>
