@@ -1,37 +1,63 @@
-name: Deploy to AWS
+name: Deploy
+
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
 permissions:
-  id-token: write   # REQUIRED - lets GitHub mint the OIDC token
-  contents: read     # needed for actions/checkout
+  id-token: write # lets GitHub mint the OIDC token AWS trusts
+  contents: read # needed by actions/checkout
+
+# Never run two deploys of the same stack at once.
+concurrency:
+  group: deploy-${{ vars.OWNER }}
+  cancel-in-progress: false
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Check repository variables are set
+        env:
+          AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+          OWNER: ${{ vars.OWNER }}
+        run: |
+          if [ -z "$AWS_ROLE_ARN" ] || [ -z "$OWNER" ]; then
+            echo "::error::Set AWS_ROLE_ARN and OWNER under Settings > Secrets and variables > Actions > Variables"
+            exit 1
+          fi
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
+      - uses: actions/checkout@v7
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+      - uses: actions/setup-python@v7
         with:
-          role-to-assume: arn:aws:iam::785269092218:role/MyCdkProjectGitHubDeployRole
+          python-version: "3.13"
+          cache: pip
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt -r requirements-dev.txt
+          npm install -g aws-cdk
+
+      - name: Run tests
+        run: pytest -q
+
+      - name: Configure AWS credentials (OIDC, no stored keys)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: us-east-1
+          allowed-account-ids: "785269092218"
 
       - name: Confirm who we are
         run: aws sts get-caller-identity
 
-      - name: Install dependencies
-        run: |
-          npm install -g aws-cdk
-          pip install -r requirements.txt
-
       - name: Deploy
-        run: cdk deploy --require-approval never
+        env:
+          OWNER: ${{ vars.OWNER }}
+        run: cdk deploy --require-approval never -c owner="$OWNER"

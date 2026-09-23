@@ -1,0 +1,3 @@
+pytest==8.4.2
+# The Lambda runtime ships boto3; locally the handler tests need it installed.
+boto3
